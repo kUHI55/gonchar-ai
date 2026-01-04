@@ -1,0 +1,99 @@
+import OpenAI from "openai";
+import { NextResponse } from "next/server";
+
+export const runtime = "nodejs";
+
+// анти-спам: 1 запрос / 2 сек
+let lastTime = 0;
+
+function isRegionBlock(err) {
+  const status = err?.status || err?.response?.status;
+  const msg = String(err?.message || "");
+  return (
+    status === 403 ||
+    msg.includes("Country, region, or territory not supported") ||
+    msg.includes("region") ||
+    msg.includes("territory")
+  );
+}
+
+export async function POST(req) {
+  try {
+    const now = Date.now();
+    if (now - lastTime < 2000) {
+      return NextResponse.json(
+        { error: "Подожди 2 секунды перед следующей проверкой 🙂" },
+        { status: 429 }
+      );
+    }
+    lastTime = now;
+
+    const { topic, theory, task, answerText } = await req.json();
+
+    if (!answerText || !answerText.trim()) {
+      return NextResponse.json(
+        { error: "answerText is required" },
+        { status: 400 }
+      );
+    }
+
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+
+    const system = `
+Ты — лучший школьный учитель математики (10–16 лет).
+Твоя цель — проверить решение ученика и научить.
+
+Правила:
+1) Если ответ/решение неверное — НЕ говори сразу финальный ответ.
+   Скажи, на каком шаге ошибка, и дай 1–2 наводящих вопроса.
+2) Если верно — похвали коротко и предложи следующий шаг усложнения.
+3) Если ученик написал мало/непонятно — задай 1 уточняющий вопрос.
+4) Пиши коротко, простыми словами, по пунктам.
+`.trim();
+
+    const user = `
+ТЕМА: ${topic || "математика"}
+
+ТЕОРИЯ (может быть markdown):
+${theory || "(нет)"}
+
+ЗАДАЧА:
+${task ? `${task.title}\n${task.prompt}` : "(нет)"}
+
+РЕШЕНИЕ УЧЕНИКА:
+${answerText}
+`.trim();
+
+    const resp = await client.responses.create({
+      model,
+      input: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      max_output_tokens: 700,
+    });
+
+    const feedback =
+      resp.output_text?.trim() || "Не смог проверить. Попробуй написать решение чуть подробнее.";
+
+    return NextResponse.json({ ok: true, feedback });
+  } catch (err) {
+    if (isRegionBlock(err)) {
+      return NextResponse.json(
+        {
+          code: "REGION_BLOCK",
+          error:
+            "OpenAI API недоступен из-за региона/VPN. На Vercel обычно работает. Если нет — скажи, посмотрим логи.",
+        },
+        { status: 200 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: err?.message || "Server error" },
+      { status: 500 }
+    );
+  }
+}
