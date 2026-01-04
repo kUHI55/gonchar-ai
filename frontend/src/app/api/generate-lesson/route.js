@@ -3,13 +3,12 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-// ✅ Анти-спам: 1 запрос / 3 сек (очень простая защита денег)
+// ✅ Анти-спам: 1 запрос / 3 сек
 let lastRequestTime = 0;
 
 function isRegionBlock(err) {
   const status = err?.status || err?.response?.status;
   const msg = String(err?.message || "");
-
   return (
     status === 403 ||
     msg.includes("Country, region, or territory not supported") ||
@@ -20,7 +19,6 @@ function isRegionBlock(err) {
 
 export async function POST(req) {
   try {
-    // ✅ Лимит запросов
     const now = Date.now();
     if (now - lastRequestTime < 3000) {
       return NextResponse.json(
@@ -36,16 +34,19 @@ export async function POST(req) {
       return NextResponse.json({ error: "Topic is required" }, { status: 400 });
     }
 
-    const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    // ✅ Жёстко фиксируем модель, чтобы не улететь на дорогую
-    const model = "gpt-4.1-mini";
+    // ✅ фиксируем модель
+    const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
     const prompt = `
 Ты — школьный AI-репетитор по математике.
 Сгенерируй урок для ребенка по теме: "${topic}".
+
+ВАЖНО:
+- НЕ используй LaTeX/формулы вида $...$, $$...$$, \\frac, \\sum и т.п.
+- Пиши формулы обычным текстом: "S(n) = n(n+1)/2", "x^2 + 2x + 1", "2n - 1".
+- Никаких $$ вообще.
 
 Верни СТРОГО JSON (без текста вокруг). Никаких комментариев, только JSON.
 
@@ -67,7 +68,7 @@ export async function POST(req) {
         {
           role: "system",
           content:
-            "You are a helpful tutor. Return ONLY valid JSON. No prose. No code fences.",
+            "Return ONLY valid JSON. No prose. No code fences. No LaTeX. Use plain-text formulas.",
         },
         { role: "user", content: prompt },
       ],
@@ -88,13 +89,12 @@ export async function POST(req) {
 
     return NextResponse.json(data);
   } catch (err) {
-    // ✅ обработка VPN/региона
     if (isRegionBlock(err)) {
       return NextResponse.json(
         {
           code: "REGION_BLOCK",
           error:
-            "OpenAI API недоступен из-за VPN/региона. Выключи VPN и попробуй ещё раз. Пока можно работать в демо-режиме.",
+            "OpenAI API недоступен из-за VPN/региона. На Vercel обычно работает. Если нет — скажи, посмотрим логи.",
         },
         { status: 200 }
       );
