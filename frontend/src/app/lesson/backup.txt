@@ -1,0 +1,239 @@
+src/app/components/EinsteinLoader.jsx
+"use client";
+
+import { useEffect, useState } from "react";
+import EinsteinLoader from "../components/EinsteinLoader";
+
+export default function LessonsPage() {
+  const [loading, setLoading] = useState(true);
+  const [lesson, setLesson] = useState(null);
+
+  // Заглушка: имитируем загрузку “урока”
+  useEffect(() => {
+    const topic = localStorage.getItem("topic") || "Квадратные уравнения";
+
+    setTimeout(() => {
+      setLesson({
+        title: topic,
+        theory:
+          Тема: ${topic}\n\n +
+          "1) Короткое объяснение простыми словами.\n" +
+          "2) Пример.\n" +
+          "3) Типичные ошибки.\n\n" +
+          "Чуть позже сюда подключим GPT, чтобы генерировать это реально под ученика.",
+        tasks: [
+          { id: "t1", text: "Реши: x² − 5x + 6 = 0" },
+          { id: "t2", text: "Найди дискриминант: x² + 4x + 5 = 0" },
+          { id: "t3", text: "Реши: 2x² − 8x = 0" },
+        ],
+      });
+      setLoading(false);
+    }, 1800);
+  }, []);
+
+  if (loading) return <EinsteinLoader text="Генерирую план и задачи..." />;
+
+  return (
+    <div style={styles.page}>
+      <header style={styles.header}>
+        <div>
+          <div style={styles.brand}>Gonchar AI</div>
+          <h1 style={styles.h1}>{lesson.title}</h1>
+        </div>
+        <button
+          style={styles.btnSecondary}
+          onClick={() => (window.location.href = "/")}
+        >
+          Новая тема
+        </button>
+      </header>
+
+      <div style={styles.grid}>
+        {/* ЛЕВО: задачи */}
+        <aside style={styles.left}>
+          <div style={styles.panelTitle}>Задачи</div>
+          <div style={styles.list}>
+            {lesson.tasks.map((t) => (
+              <div key={t.id} style={styles.task}>
+                <div style={styles.taskId}>{t.id.toUpperCase()}</div>
+                <div>{t.text}</div>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        {/* ЦЕНТР: теория */}
+        <main style={styles.center}>
+          <div style={styles.panelTitle}>Материал</div>
+          <pre style={styles.theory}>{lesson.theory}</pre>
+
+          <div style={styles.solutionBox}>
+            <div style={styles.panelTitle}>Твоё решение</div>
+            <textarea
+              style={styles.textarea}
+              placeholder="Напиши решение (позже добавим загрузку фото)…"
+            />
+            <button
+              style={styles.btnPrimary}
+              onClick={() => alert("Дальше подключим проверку через Wolfram + GPT")}
+            >
+              Проверить решение
+            </button>
+          </div>
+        </main>
+
+        {/* ПРАВО: чат */}
+        <aside style={styles.right}>
+          <div style={styles.panelTitle}>Чат с Эйнштейном</div>
+          <div style={styles.chatBox}>
+            <div style={styles.msgBot}>
+              Привет! Спроси, если что-то непонятно по теме 🙂
+            </div>
+          </div>
+          <div style={styles.chatInputRow}>
+            <input style={styles.chatInput} placeholder="Напиши вопрос…" />
+            <button style={styles.btnSend} onClick={() => alert("Чат подключим следующим шагом")}>
+              →
+            </button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  page: {
+    minHeight: "100vh",
+    background: "#0b0f17",
+    color: "white",
+    padding: 20,
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  brand: { fontSize: 12, opacity: 0.7 },
+  h1: { margin: 0, fontSize: 22 },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "320px 1fr 340px",
+    gap: 14,
+    alignItems: "start",
+  },
+  left: {
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 14,
+    padding: 14,
+    minHeight: 520,
+  },
+  center: {
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 14,
+    padding: 14,
+    minHeight: 520,
+  },
+  right: {
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 14,
+    padding: 14,
+    minHeight: 520,
+    display: "flex",
+    flexDirection: "column",
+  },
+  panelTitle: { fontSize: 13, opacity: 0.8, marginBottom: 10 },
+  list: { display: "grid", gap: 10 },
+  task: {
+    display: "grid",
+    gridTemplateColumns: "52px 1fr",
+    gap: 10,
+    padding: 10,
+    borderRadius: 12,
+    background: "rgba(0,0,0,0.35)",
+    border: "1px solid rgba(255,255,255,0.10)",
+  },
+  taskId: { fontWeight: 700, opacity: 0.85 },
+  theory: {
+    whiteSpace: "pre-wrap",
+    background: "rgba(0,0,0,0.35)",
+    border: "1px solid rgba(255,255,255,0.10)",
+    borderRadius: 12,
+    padding: 12,
+    margin: 0,
+    minHeight: 220,
+  },
+  solutionBox: { marginTop: 14 },
+  textarea: {
+    width: "100%",
+    minHeight: 120,
+    marginTop: 8,
+    borderRadius: 12,
+    padding: 12,
+    background: "rgba(0,0,0,0.35)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    color: "white",
+    outline: "none",
+    resize: "vertical",
+  },
+  chatBox: {
+    flex: 1,
+    background: "rgba(0,0,0,0.35)",
+    border: "1px solid rgba(255,255,255,0.10)",
+    borderRadius: 12,
+    padding: 12,
+    overflowY: "auto",
+    minHeight: 260,
+  },
+  msgBot: {
+    padding: 10,
+    borderRadius: 12,
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    width: "fit-content",
+    maxWidth: "90%",
+  },
+  chatInputRow: { display: "flex", gap: 8, marginTop: 10 },
+  chatInput: {
+    flex: 1,
+    borderRadius: 12,
+    padding: "10px 12px",
+    background: "rgba(0,0,0,0.35)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    color: "white",
+    outline: "none",
+  },
+  btnPrimary: {
+    marginTop: 10,
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "none",
+    background: "#3b82f6",
+    color: "white",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  btnSecondary: {
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.18)",
+    background: "rgba(255,255,255,0.06)",
+    color: "white",
+    cursor: "pointer",
+  },
+  btnSend: {
+    width: 42,
+    borderRadius: 12,
+    border: "none",
+    background: "#3b82f6",
+    color: "white",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+};
