@@ -12,32 +12,59 @@ export async function GET() {
   });
 }
 
-// POST — запрос в Wolfram
+// POST — запрос в Wolfram (JSON v2/query) + парсинг ответа
 export async function POST(req) {
   try {
-    const { query } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const query = body?.query;
 
     if (!query || !String(query).trim()) {
       return NextResponse.json({ error: "query required" }, { status: 400 });
     }
 
-    // ВАЖНО: в Vercel/ .env должно называться именно так:
+    // ВАЖНО: переменная должна называться именно WOLFRAM_APP_ID
     const appid = process.env.WOLFRAM_APP_ID;
     if (!appid) {
-      return NextResponse.json({ error: "No WOLFRAM_APP_ID" }, { status: 500 });
+      return NextResponse.json({ error: "Wolfram AppID not configured" }, { status: 500 });
     }
 
-    // Простой endpoint (v1/result) возвращает текстовый ответ
     const url =
-      "https://api.wolframalpha.com/v1/result?appid=" +
+      "https://api.wolframalpha.com/v2/query?" +
+      "appid=" +
       encodeURIComponent(appid) +
-      "&i=" +
-      encodeURIComponent(query);
+      "&input=" +
+      encodeURIComponent(String(query)) +
+      "&output=json" +
+      "&format=plaintext";
 
-    const r = await fetch(url);
-    const text = await r.text();
+    const res = await fetch(url);
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      return NextResponse.json(
+        { error: `Wolfram error: ${res.status}`, details: t },
+        { status: 502 }
+      );
+    }
 
-    return NextResponse.json({ ok: true, result: text });
+    const data = await res.json();
+
+    // Достаём plaintext из pod "Roots" (или любого pod где есть root)
+    const pods = data?.queryresult?.pods || [];
+    const rootsPod = pods.find(
+      (p) =>
+        p?.id === "Roots" ||
+        String(p?.title || "").toLowerCase().includes("root") ||
+        String(p?.title || "").toLowerCase().includes("корн") ||
+        String(p?.title || "").toLowerCase().includes("решен")
+    );
+
+    const rootsText = rootsPod?.subpods?.[0]?.plaintext || null;
+
+    return NextResponse.json({
+      ok: true,
+      roots: rootsText, // например: "2, 3"
+      data,             // оставляем пока для отладки
+    });
   } catch (e) {
     return NextResponse.json(
       { error: e?.message || "Server error" },
