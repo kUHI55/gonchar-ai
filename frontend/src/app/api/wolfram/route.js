@@ -1,8 +1,18 @@
-// wolfram api route
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
+// GET — чтобы проверить, что роут вообще существует на Vercel
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    route: "/api/wolfram",
+    methods: ["GET", "POST"],
+  });
+}
+
+// POST — твой Wolfram запрос
 export async function POST(req) {
   try {
     const { query } = await req.json();
@@ -25,8 +35,8 @@ export async function POST(req) {
     const r = await fetch(url);
     const text = await r.text();
 
-    return NextResponse.json({ result: text });
+    return NextResponse.json({ ok: true, result: text });
   } catch (e) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
   }
 }
