@@ -2,22 +2,36 @@ import OpenAI from "openai";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // анти-спам: 1 запрос / 2 сек
 let lastTime = 0;
 
-async function wolframResult(query) {
-  const appid = process.env.WOLFRAM_APPID;
-  if (!appid) throw new Error("WOLFRAM_APPID missing in .env.local");
+function isRegionBlock(err) {
+  const status = err?.status || err?.response?.status;
+  const msg = String(err?.message || "");
+  return (
+    status === 403 ||
+    msg.includes("Country, region, or territory not supported") ||
+    msg.includes("region") ||
+    msg.includes("territory")
+  );
+}
 
-  const url =
-    "https://api.wolframalpha.com/v1/result" +
-    `?appid=${encodeURIComponent(appid)}` +
-    `&i=${encodeURIComponent(query)}`;
+// helper: дергаем наш же /api/wolfram
+async function solveWithWolfram(baseUrl, query) {
+  const res = await fetch(`${baseUrl}/api/wolfram`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
 
-  const r = await fetch(url);
-  const text = await r.text();
-  return { ok: r.ok, text };
+  const data = await res.json();
+  if (!res.ok || data?.error) {
+    return { ok: false, error: data?.error || "Wolfram error", raw: data };
+  }
+
+  return { ok: true, roots: data?.roots ?? null, raw: data };
 }
 
 export async function POST(req) {
@@ -34,53 +48,59 @@ export async function POST(req) {
     const { topic, theory, task, answerText } = await req.json();
 
     if (!answerText || !answerText.trim()) {
-      return NextResponse.json({ error: "answerText is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "answerText is required" },
+        { status: 400 }
+      );
     }
-    if (!task?.prompt) {
-      return NextResponse.json({ error: "task.prompt is required" }, { status: 400 });
-    }
 
-    // 1) Эталон: Wolfram
-    const wolframQuery =
-      (task?.wolframQuery || "").trim() ||
-      `solve ${task.prompt}`; // fallback
+    // baseUrl нужен, чтобы вызвать /api/wolfram на том же домене (Vercel/локал)
+    const baseUrl =
+      process.env.VERCEL_URL
+        ? https://${process.env.VERCEL_URL}
+        : "http://localhost:3000";
 
-    const w = await wolframResult(wolframQuery);
+    // Формируем запрос к Wolfram на основе задачи
+    // (пока простая версия: если есть текст задачи — передаём его в solve)
+    // Позже улучшим: GPT будет генерить короткий wolfram-query из task.prompt.
+    const wolframQuery = task?.prompt
+      ? solve ${task.prompt}
+      : solve ${answerText};
 
-    // 2) GPT объясняет как учитель, сверяя с Wolfram
+    const wolfram = await solveWithWolfram(baseUrl, wolframQuery);
+
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
     const system = `
 Ты — лучший школьный учитель математики (10–16 лет).
-Проверяй решение ученика и учи.
+Твоя цель — проверить решение ученика и научить.
 
+У тебя есть эталон от Wolfram (может быть roots или raw).
 Правила:
-- Если неверно: НЕ давай финальный ответ. Скажи "ошибка на шаге X" (если можно) и задай 1–2 наводящих вопроса.
-- Если верно: похвали и предложи маленькое усложнение.
-- Если непонятно: задай 1 уточняющий вопрос.
-Коротко, по пунктам, простыми словами.
+1) Если решение неверное — НЕ говори сразу финальный ответ.
+   Скажи, на каком шаге ошибка, и дай 1–2 наводящих вопроса.
+2) Если верно — похвали коротко и предложи следующий шаг усложнения.
+3) Если ученик написал мало/непонятно — задай 1 уточняющий вопрос.
+4) Пиши коротко, простыми словами, по пунктам.
 `.trim();
 
     const user = `
 ТЕМА: ${topic || "математика"}
 
-ТЕОРИЯ:
+ТЕОРИЯ (может быть markdown):
 ${theory || "(нет)"}
 
 ЗАДАЧА:
-${task.title || "Задача"} — ${task.prompt}
-
-WOLFRAM QUERY:
-${wolframQuery}
-
-WOLFRAM RESULT (эталон):
-${w.ok ? w.text : "(Wolfram не дал нормальный ответ: " + w.text + ")"}
+${task ? ${task.title}\n${task.prompt} : "(нет)"}
 
 РЕШЕНИЕ УЧЕНИКА:
 ${answerText}
 
-Проверь и объясни как учитель.
+ЭТАЛОН от Wolfram:
+ok: ${wolfram.ok}
+roots: ${JSON.stringify(wolfram.roots)}
+raw (сокращенно): ${wolfram.ok ? "есть" : JSON.stringify(wolfram.raw)}
 `.trim();
 
     const resp = await client.responses.create({
@@ -96,13 +116,19 @@ ${answerText}
       resp.output_text?.trim() ||
       "Не смог проверить. Попробуй написать решение чуть подробнее.";
 
-    return NextResponse.json({
-      ok: true,
-      wolframOk: w.ok,
-      wolframAnswer: w.text,
-      feedback,
-    });
+    return NextResponse.json({ ok: true, feedback, wolfram: { ok: wolfram.ok, roots: wolfram.roots } });
   } catch (err) {
+    if (isRegionBlock(err)) {
+      return NextResponse.json(
+        {
+          code: "REGION_BLOCK",
+          error:
+            "OpenAI API недоступен из-за региона/VPN. На Vercel обычно работает. Если нет — скажи, посмотрим логи.",
+        },
+        { status: 200 }
+      );
+    }
+
     return NextResponse.json(
       { error: err?.message || "Server error" },
       { status: 500 }
