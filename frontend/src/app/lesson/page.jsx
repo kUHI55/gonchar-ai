@@ -44,6 +44,7 @@ export default function LessonPage() {
     return lesson.tasks.find((t) => t.id === activeTaskId) || lesson.tasks[0];
   }, [lesson, activeTaskId]);
 
+  // читаем тему из URL и генерим урок
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const t = params.get("topic") || "математика";
@@ -61,7 +62,13 @@ export default function LessonPage() {
           theory:
             "⚠️ Не удалось сгенерировать урок через API.\n\n" +
             `Ошибка: ${e?.message || "unknown"}`,
-          tasks: [{ id: "t1", title: "Задача 1", prompt: "Пока нет задач — генерация не сработала." }],
+          tasks: [
+            {
+              id: "t1",
+              title: "Задача 1",
+              prompt: "Пока нет задач — генерация не сработала.",
+            },
+          ],
         });
         setActiveTaskId("t1");
       } finally {
@@ -70,6 +77,7 @@ export default function LessonPage() {
     })();
   }, []);
 
+  // блокируем скролл при лоадере
   useEffect(() => {
     if (!loading) return;
     const prev = document.body.style.overflow;
@@ -79,18 +87,32 @@ export default function LessonPage() {
     };
   }, [loading]);
 
+  // ✅ СБРОС решения при смене задачи
+  useEffect(() => {
+    setAnswerText("");
+  }, [activeTaskId]);
+
   // ✅ проверка решения — API /api/check-answer
   async function handleCheck() {
+    if (checkLoading) return; // ✅ анти-спам
     if (!activeTask) return;
 
     const a = (answerText || "").trim();
     if (!a) {
-      setMessages((prev) => [...prev, { role: "assistant", text: "Напиши решение или ответ, затем нажми «Проверить» 🙂" }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: "Напиши решение или ответ, затем нажми «Проверить» 🙂" },
+      ]);
       return;
     }
 
     setCheckLoading(true);
-    setMessages((prev) => [...prev, { role: "user", text: `Решение по «${activeTask.title}»:\n${a}` }]);
+
+    // показываем сообщение ученика
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", text: `Решение по «${activeTask.title}»:\n${a}` },
+    ]);
 
     try {
       const res = await fetch("/api/check-answer", {
@@ -100,21 +122,32 @@ export default function LessonPage() {
           topic,
           answerText: a,
           theory: lesson?.theory || "",
-          task: activeTask ? { id: activeTask.id, title: activeTask.title, prompt: activeTask.prompt } : null,
+          task: activeTask
+            ? { id: activeTask.id, title: activeTask.title, prompt: activeTask.prompt }
+            : null,
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setMessages((prev) => [...prev, { role: "assistant", text: `⚠️ Ошибка проверки: ${data?.error || "Unknown error"}` }]);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: `⚠️ Ошибка проверки: ${data?.error || "Unknown error"}` },
+        ]);
       } else if (data?.error) {
         setMessages((prev) => [...prev, { role: "assistant", text: `⚠️ ${data.error}` }]);
       } else {
-        setMessages((prev) => [...prev, { role: "assistant", text: data.feedback || "(пустой ответ)" }]);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: data.feedback || "(пустой ответ)" },
+        ]);
       }
     } catch (e) {
-      setMessages((prev) => [...prev, { role: "assistant", text: "⚠️ Ошибка сети. Попробуй ещё раз." }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: "⚠️ Ошибка сети. Попробуй ещё раз." },
+      ]);
     } finally {
       setCheckLoading(false);
     }
@@ -122,10 +155,14 @@ export default function LessonPage() {
 
   // ✅ чат — API /api/ask-tutor
   async function handleAsk(question) {
+    if (chatLoading) return; // ✅ анти-спам
+
     const q = (question || "").trim();
     if (!q) return;
 
     setChatLoading(true);
+
+    // показываем вопрос ученика
     setMessages((prev) => [...prev, { role: "user", text: q }]);
 
     try {
@@ -136,21 +173,32 @@ export default function LessonPage() {
           topic,
           question: q,
           theory: lesson?.theory || "",
-          task: activeTask ? { id: activeTask.id, title: activeTask.title, prompt: activeTask.prompt } : null,
+          task: activeTask
+            ? { id: activeTask.id, title: activeTask.title, prompt: activeTask.prompt }
+            : null,
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setMessages((prev) => [...prev, { role: "assistant", text: `⚠️ Ошибка API: ${data?.error || "Unknown error"}` }]);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: `⚠️ Ошибка API: ${data?.error || "Unknown error"}` },
+        ]);
       } else if (data?.error) {
         setMessages((prev) => [...prev, { role: "assistant", text: `⚠️ ${data.error}` }]);
       } else {
-        setMessages((prev) => [...prev, { role: "assistant", text: data.answer || "(пустой ответ)" }]);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: data.answer || "(пустой ответ)" },
+        ]);
       }
     } catch (e) {
-      setMessages((prev) => [...prev, { role: "assistant", text: "⚠️ Ошибка сети. Проверь интернет и попробуй ещё раз." }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: "⚠️ Ошибка сети. Проверь интернет и попробуй ещё раз." },
+      ]);
     } finally {
       setChatLoading(false);
     }
@@ -162,10 +210,21 @@ export default function LessonPage() {
 
       {!loading && lesson && (
         <LessonLayout
-          left={<TasksPanel tasks={lesson.tasks} activeTaskId={activeTaskId} onSelect={setActiveTaskId} />}
+          left={
+            <TasksPanel
+              tasks={lesson.tasks}
+              activeTaskId={activeTaskId}
+              onSelect={setActiveTaskId}
+            />
+          }
           right={
             <div>
-              <TheoryPanel title={lesson.title} theory={lesson.theory} activeTask={activeTask} messages={messages} />
+              <TheoryPanel
+                title={lesson.title}
+                theory={lesson.theory}
+                activeTask={activeTask}
+                messages={messages}
+              />
               <ChatPanel onSend={handleAsk} sending={chatLoading} />
             </div>
           }

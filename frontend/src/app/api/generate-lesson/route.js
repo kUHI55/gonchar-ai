@@ -9,12 +9,22 @@ let lastRequestTime = 0;
 function isRegionBlock(err) {
   const status = err?.status || err?.response?.status;
   const msg = String(err?.message || "");
+
   return (
     status === 403 ||
     msg.includes("Country, region, or territory not supported") ||
-    msg.includes("region") ||
-    msg.includes("territory")
+    msg.toLowerCase().includes("region") ||
+    msg.toLowerCase().includes("territory")
   );
+}
+
+// ✅ если модель вдруг вернула не “чистый JSON”, вырежем объект {...}
+function extractJsonObject(text) {
+  const s = String(text || "").trim();
+  const first = s.indexOf("{");
+  const last = s.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) return null;
+  return s.slice(first, last + 1);
 }
 
 export async function POST(req) {
@@ -36,53 +46,78 @@ export async function POST(req) {
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    // ✅ фиксируем модель
+    // ✅ фиксируем модель (чтобы не улететь в дорогую)
     const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
-    const prompt = `
-Ты — школьный AI-репетитор по математике.
-Сгенерируй урок для ребенка по теме: "${topic}".
+    const system = `
+Ты — школьный AI-репетитор по математике для ученика 10–16 лет.
 
-ВАЖНО:
-- НЕ используй LaTeX/формулы вида $...$, $$...$$, \\frac, \\sum и т.п.
-- Пиши формулы обычным текстом: "S(n) = n(n+1)/2", "x^2 + 2x + 1", "2n - 1".
-- Никаких $$ вообще.
+Верни ТОЛЬКО валидный JSON. Никакого текста вокруг. Никаких code fences.
 
-Верни СТРОГО JSON (без текста вокруг). Никаких комментариев, только JSON.
+ВАЖНО ПРО ФОРМУЛЫ:
+- НЕ используй LaTeX: никаких $...$, $$...$$, \\frac, \\sqrt и т.п.
+- Формулы пиши обычным текстом: "x^2 - 5x + 6 = 0", "D = b^2 - 4ac", "x = (-b ± sqrt(D)) / (2a)".
+`.trim();
 
-Формат:
+    const user = `
+Сгенерируй урок для ребёнка по теме: "${topic}".
+
+Верни СТРОГО JSON в формате:
+
 {
   "title": "Тема: ...",
-  "theory": "markdown текст объяснения",
+  "theory": "markdown-текст (без LaTeX)",
   "tasks": [
     { "id": "t1", "title": "Задача 1", "prompt": "..." },
     { "id": "t2", "title": "Задача 2", "prompt": "..." },
     { "id": "t3", "title": "Задача 3", "prompt": "..." }
   ]
 }
+
+Правила к задачам:
+- 3 задачи, от простой к сложнее
+- формулировки короткие и понятные
+- без LaTeX
 `.trim();
 
     const response = await client.responses.create({
       model,
       input: [
-        {
-          role: "system",
-          content:
-            "Return ONLY valid JSON. No prose. No code fences. No LaTeX. Use plain-text formulas.",
-        },
-        { role: "user", content: prompt },
+        { role: "system", content: system },
+        { role: "user", content: user },
       ],
       max_output_tokens: 1200,
     });
 
-    const text = response.output_text?.trim() || "";
+    const raw = response.output_text?.trim() || "";
 
-    let data;
+    // 1) пробуем парсить как есть
+    let data = null;
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(raw);
     } catch {
+      // 2) если не вышло — вырезаем JSON-объект и парсим его
+      const cut = extractJsonObject(raw);
+      if (!cut) {
+        return NextResponse.json(
+          { error: "Model returned invalid JSON", raw },
+          { status: 500 }
+        );
+      }
+      try {
+        data = JSON.parse(cut);
+      } catch {
+        return NextResponse.json(
+          { error: "Model returned invalid JSON", raw },
+          { status: 500 }
+        );
+      }
+    }
+
+    // минимальная валидация
+    if (!data?.title || !data?.theory || !Array.isArray(data?.tasks)) {
       return NextResponse.json(
-        { error: "Model returned invalid JSON", raw: text },
+        { error: "JSON schema mismatch", raw, parsed: data },
         { status: 500 }
       );
     }
@@ -94,7 +129,7 @@ export async function POST(req) {
         {
           code: "REGION_BLOCK",
           error:
-            "OpenAI API недоступен из-за VPN/региона. На Vercel обычно работает. Если нет — скажи, посмотрим логи.",
+            "OpenAI API недоступен из-за региона/VPN. На Vercel обычно работает. Если нет — посмотрим логи деплоя.",
         },
         { status: 200 }
       );

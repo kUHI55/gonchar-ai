@@ -6,15 +6,18 @@ export const runtime = "nodejs";
 // анти-спам: 1 запрос / 2 сек
 let lastTime = 0;
 
-function isRegionBlock(err) {
-  const status = err?.status || err?.response?.status;
-  const msg = String(err?.message || "");
-  return (
-    status === 403 ||
-    msg.includes("Country, region, or territory not supported") ||
-    msg.includes("region") ||
-    msg.includes("territory")
-  );
+async function wolframResult(query) {
+  const appid = process.env.WOLFRAM_APPID;
+  if (!appid) throw new Error("WOLFRAM_APPID missing in .env.local");
+
+  const url =
+    "https://api.wolframalpha.com/v1/result" +
+    `?appid=${encodeURIComponent(appid)}` +
+    `&i=${encodeURIComponent(query)}`;
+
+  const r = await fetch(url);
+  const text = await r.text();
+  return { ok: r.ok, text };
 }
 
 export async function POST(req) {
@@ -31,39 +34,53 @@ export async function POST(req) {
     const { topic, theory, task, answerText } = await req.json();
 
     if (!answerText || !answerText.trim()) {
-      return NextResponse.json(
-        { error: "answerText is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "answerText is required" }, { status: 400 });
+    }
+    if (!task?.prompt) {
+      return NextResponse.json({ error: "task.prompt is required" }, { status: 400 });
     }
 
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    // 1) Эталон: Wolfram
+    const wolframQuery =
+      (task?.wolframQuery || "").trim() ||
+      `solve ${task.prompt}`; // fallback
 
+    const w = await wolframResult(wolframQuery);
+
+    // 2) GPT объясняет как учитель, сверяя с Wolfram
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
     const system = `
 Ты — лучший школьный учитель математики (10–16 лет).
-Твоя цель — проверить решение ученика и научить.
+Проверяй решение ученика и учи.
 
 Правила:
-1) Если ответ/решение неверное — НЕ говори сразу финальный ответ.
-   Скажи, на каком шаге ошибка, и дай 1–2 наводящих вопроса.
-2) Если верно — похвали коротко и предложи следующий шаг усложнения.
-3) Если ученик написал мало/непонятно — задай 1 уточняющий вопрос.
-4) Пиши коротко, простыми словами, по пунктам.
+- Если неверно: НЕ давай финальный ответ. Скажи "ошибка на шаге X" (если можно) и задай 1–2 наводящих вопроса.
+- Если верно: похвали и предложи маленькое усложнение.
+- Если непонятно: задай 1 уточняющий вопрос.
+Коротко, по пунктам, простыми словами.
 `.trim();
 
     const user = `
 ТЕМА: ${topic || "математика"}
 
-ТЕОРИЯ (может быть markdown):
+ТЕОРИЯ:
 ${theory || "(нет)"}
 
 ЗАДАЧА:
-${task ? `${task.title}\n${task.prompt}` : "(нет)"}
+${task.title || "Задача"} — ${task.prompt}
+
+WOLFRAM QUERY:
+${wolframQuery}
+
+WOLFRAM RESULT (эталон):
+${w.ok ? w.text : "(Wolfram не дал нормальный ответ: " + w.text + ")"}
 
 РЕШЕНИЕ УЧЕНИКА:
 ${answerText}
+
+Проверь и объясни как учитель.
 `.trim();
 
     const resp = await client.responses.create({
@@ -76,21 +93,16 @@ ${answerText}
     });
 
     const feedback =
-      resp.output_text?.trim() || "Не смог проверить. Попробуй написать решение чуть подробнее.";
+      resp.output_text?.trim() ||
+      "Не смог проверить. Попробуй написать решение чуть подробнее.";
 
-    return NextResponse.json({ ok: true, feedback });
+    return NextResponse.json({
+      ok: true,
+      wolframOk: w.ok,
+      wolframAnswer: w.text,
+      feedback,
+    });
   } catch (err) {
-    if (isRegionBlock(err)) {
-      return NextResponse.json(
-        {
-          code: "REGION_BLOCK",
-          error:
-            "OpenAI API недоступен из-за региона/VPN. На Vercel обычно работает. Если нет — скажи, посмотрим логи.",
-        },
-        { status: 200 }
-      );
-    }
-
     return NextResponse.json(
       { error: err?.message || "Server error" },
       { status: 500 }
