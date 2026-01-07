@@ -1,45 +1,30 @@
+"use client";
+
 export default function LessonLayout({ left, right, bottom }) {
   return (
-    <div style={styles.page}>
-      <div style={styles.main}>
-        <aside style={styles.left}>{left}</aside>
-        <section style={styles.right}>{right}</section>
+    <div className="min-h-screen w-full bg-[#0b0f17] text-white">
+      <div className="mx-auto w-full max-w-6xl px-3 sm:px-4 py-4 sm:py-6">
+        {/* Mobile: 1 column / Desktop: 2 columns */}
+        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-3 sm:gap-4">
+          {/* LEFT */}
+          <aside className="order-1 lg:order-none">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4">
+              {left}
+            </div>
+          </aside>
+
+          {/* RIGHT + BOTTOM */}
+          <main className="order-2 lg:order-none min-w-0">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4">
+              {right}
+            </div>
+
+            <div className="mt-3 sm:mt-4 rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4">
+              {bottom}
+            </div>
+          </main>
+        </div>
       </div>
-      <div style={styles.bottom}>{bottom}</div>
     </div>
   );
 }
-
-const styles = {
-  page: {
-    height: "100vh",
-    display: "grid",
-    gridTemplateRows: "1fr auto",
-    background: "#0b0f1a",
-    color: "white",
-  },
-  main: {
-    display: "grid",
-    gridTemplateColumns: "320px 1fr",
-    gap: 12,
-    padding: 12,
-    overflow: "hidden",
-  },
-  left: {
-    border: "1px solid rgba(255,255,255,0.10)",
-    borderRadius: 14,
-    background: "rgba(255,255,255,0.04)",
-    overflow: "auto",
-  },
-  right: {
-    border: "1px solid rgba(255,255,255,0.10)",
-    borderRadius: 14,
-    background: "rgba(255,255,255,0.04)",
-    overflow: "auto",
-  },
-  bottom: {
-    borderTop: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(0,0,0,0.35)",
-    padding: 12,
-  },
-};
