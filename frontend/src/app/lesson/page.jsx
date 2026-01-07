@@ -271,40 +271,39 @@ export default function LessonPage() {
   }
 
   return (
-    <>
-      {loading && <EinsteinLoader text="Готовлю урок и примеры..." />}
+  <>
+    {loading && <EinsteinLoader text="Готовлю урок и примеры..." />}
 
-      {!loading && lesson && (
-        <LessonLayout
-          left={
-            <TasksPanel
-              tasks={lesson.tasks}
-              activeTaskId={activeTaskId}
-              onSelect={setActiveTaskId}
+    {!loading && lesson && (
+      <LessonLayout
+        left={
+          <TasksPanel
+            tasks={lesson.tasks}
+            activeTaskId={activeTaskId}
+            onSelect={setActiveTaskId}
+          />
+        }
+        right={
+          <div>
+            <TheoryPanel
+              title={lesson.title}
+              theory={lesson.theory}
+              activeTask={activeTask}
+              messages={messages}
             />
-          }
-          right={
-            <div>
-              <TheoryPanel
-                title={lesson.title}
-                theory={lesson.theory}
-                activeTask={activeTask}
-                messages={messages}
-              />
-              <ChatPanel onSend={handleAsk} sending={chatLoading} />
-            </div>
-          }
-          bottom={
-            <AnswerArea
-              answerText={answerText}
-              setAnswerText={setAnswerText}
-              onCheck={handleCheck}
-              checkLoading={checkLoading}
-              onUploadImage={handleUploadImage}
-            />
-          }
-        />
-      )}
-    </>
-  );
-}
+            <ChatPanel onSend={handleAsk} sending={chatLoading} />
+          </div>
+        }
+        bottom={
+          <AnswerArea
+            answerText={answerText}
+            setAnswerText={setAnswerText}
+            onCheck={handleCheck}
+            checkLoading={checkLoading}
+            onUploadImage={handleUploadImage}
+          />
+        }
+      />
+    )}
+  </>
+);
