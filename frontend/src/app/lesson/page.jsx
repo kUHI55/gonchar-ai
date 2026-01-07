@@ -17,7 +17,7 @@ async function generateLesson(topic) {
     body: JSON.stringify({ topic }),
   });
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
 
   if (!res.ok || data?.error) {
     throw new Error(data?.error || "Ошибка генерации урока");
@@ -37,13 +37,7 @@ export default function LessonPage() {
   const [answerText, setAnswerText] = useState("");
   const [checkLoading, setCheckLoading] = useState(false);
 
-  // ✅ Фото → OCR → подтверждение
-  const [photoFile, setPhotoFile] = useState(null);
-  const [ocrLoading, setOcrLoading] = useState(false);
-  const [pendingText, setPendingText] = useState(""); // то, что распознали
-  const [awaitConfirm, setAwaitConfirm] = useState(false); // показываем "я понял так, верно?"
-
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState([]); // чат + проверка в одной ленте
   const [chatLoading, setChatLoading] = useState(false);
 
   const activeTask = useMemo(() => {
@@ -94,113 +88,89 @@ export default function LessonPage() {
     };
   }, [loading]);
 
-  // ✅ СБРОС при смене задачи
+  // ✅ сброс решения при смене задачи
   useEffect(() => {
     setAnswerText("");
-    setPhotoFile(null);
-    setPendingText("");
-    setAwaitConfirm(false);
   }, [activeTaskId]);
 
-  // ---------- OCR FLOW ----------
-  async function runOCR() {
-    if (!photoFile) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", text: "Сначала выбери фото решения 🙂" },
-      ]);
-      return;
-    }
-    if (ocrLoading) return;
+  // ✅ Фото → OCR → "Я понял так: ... верно?"
+  async function handleUploadImage(file) {
+    if (!file) return;
 
-    setOcrLoading(true);
+    // (опционально) покажем, что началось распознавание
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant", text: "Ок, читаю фото… ⏳" },
+    ]);
 
     try {
-      const form = new FormData();
-      form.append("image", photoFile);
+      const fd = new FormData();
+      fd.append("image", file);
 
-      const res = await fetch("/api/ocr", { method: "POST", body: form });
-      const data = await res.json();
+      const res = await fetch("/api/ocr", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok || data?.error) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", text: `⚠️ OCR ошибка: ${data?.error || "Unknown"}` },
+          { role: "assistant", text: `⚠️ OCR ошибка: ${data?.error || "Unknown error"}` },
         ]);
         return;
       }
 
-      const text = (data?.text || "").trim();
-
-      if (!text) {
+      const recognized = String(data?.text || "").trim();
+      if (!recognized) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", text: "Я не смог прочитать текст на фото. Попробуй более чёткое фото 🙏" },
+          { role: "assistant", text: "Я не смог прочитать текст на фото. Попробуй сделать фото чётче 🙏" },
         ]);
         return;
       }
 
-      // показываем "я понял так"
-      setPendingText(text);
-      setAwaitConfirm(true);
+      // UX-петля подтверждения (самый простой и надежный способ)
+      const ok = window.confirm(
+        "Я понял твоё решение так:\n\n" + recognized + "\n\nВерно?"
+      );
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text:
-            "Я понял твоё решение так:\n\n" +
-            text +
-            "\n\nВерно? Нажми «Подтвердить» или «Исправить».",
-        },
-      ]);
+      if (ok) {
+        setAnswerText(recognized);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: "Принял 👍 Теперь нажми «Проверить»." },
+        ]);
+      } else {
+        // если не верно — всё равно вставим, чтобы можно было поправить руками
+        setAnswerText(recognized);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: "Ок. Исправь текст в поле и нажми «Проверить»." },
+        ]);
+      }
     } catch (e) {
       setMessages((prev) => [
         ...prev,
         { role: "assistant", text: "⚠️ Ошибка сети при OCR. Попробуй ещё раз." },
       ]);
-    } finally {
-      setOcrLoading(false);
     }
   }
 
-  function confirmOCR() {
-    if (!pendingText.trim()) return;
-    setAnswerText(pendingText);
-    setAwaitConfirm(false);
-    setMessages((prev) => [
-      ...prev,
-      { role: "assistant", text: "Ок, принял 👍 Теперь нажми «Проверить»." },
-    ]);
-  }
-
-  function editOCR() {
-    // просто вставим в поле, чтобы пользователь мог поправить
-    setAnswerText(pendingText);
-    setAwaitConfirm(false);
-    setMessages((prev) => [
-      ...prev,
-      { role: "assistant", text: "Исправь текст в поле решения и нажми «Проверить»." },
-    ]);
-  }
-
-  // ---------- CHECK ----------
+  // ✅ проверка решения — API /api/check-answer
   async function handleCheck() {
-    if (checkLoading) return; // ✅ анти-спам
+    if (checkLoading) return;
     if (!activeTask) return;
 
-    const a = (answerText || "").trim();
+    const a = String(answerText || "").trim();
     if (!a) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: "Напиши решение или распознай фото, затем нажми «Проверить» 🙂" },
+        { role: "assistant", text: "Напиши решение или загрузи фото, затем нажми «Проверить» 🙂" },
       ]);
       return;
     }
 
     setCheckLoading(true);
 
-    // показываем сообщение ученика
+    // сообщение ученика
     setMessages((prev) => [
       ...prev,
       { role: "user", text: `Решение по «${activeTask.title}»:\n${a}` },
@@ -220,7 +190,7 @@ export default function LessonPage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setMessages((prev) => [
@@ -228,7 +198,10 @@ export default function LessonPage() {
           { role: "assistant", text: `⚠️ Ошибка проверки: ${data?.error || "Unknown error"}` },
         ]);
       } else if (data?.error) {
-        setMessages((prev) => [...prev, { role: "assistant", text: `⚠️ ${data.error}` }]);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: `⚠️ ${data.error}` },
+        ]);
       } else {
         setMessages((prev) => [
           ...prev,
@@ -245,16 +218,14 @@ export default function LessonPage() {
     }
   }
 
-  // ---------- CHAT ----------
+  // ✅ чат — API /api/ask-tutor
   async function handleAsk(question) {
-    if (chatLoading) return; // ✅ анти-спам
+    if (chatLoading) return;
 
-    const q = (question || "").trim();
+    const q = String(question || "").trim();
     if (!q) return;
 
     setChatLoading(true);
-
-    // показываем вопрос ученика
     setMessages((prev) => [...prev, { role: "user", text: q }]);
 
     try {
@@ -271,7 +242,7 @@ export default function LessonPage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setMessages((prev) => [
@@ -279,7 +250,10 @@ export default function LessonPage() {
           { role: "assistant", text: `⚠️ Ошибка API: ${data?.error || "Unknown error"}` },
         ]);
       } else if (data?.error) {
-        setMessages((prev) => [...prev, { role: "assistant", text: `⚠️ ${data.error}` }]);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: `⚠️ ${data.error}` },
+        ]);
       } else {
         setMessages((prev) => [
           ...prev,
@@ -317,71 +291,6 @@ export default function LessonPage() {
                 activeTask={activeTask}
                 messages={messages}
               />
-
-              {/* ✅ блок "фото → распознать → подтвердить" */}
-              <div style={{ padding: 12, display: "grid", gap: 8 }}>
-                <div style={{ fontSize: 13, opacity: 0.85 }}>
-                  Фото решения (опционально)
-                </div>
-
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setPhotoFile(e.target.files?.[0] || null)}
-                />
-
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    onClick={runOCR}
-                    disabled={ocrLoading || !photoFile}
-                    style={{
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.18)",
-                      background: "rgba(255,255,255,0.06)",
-                      color: "white",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {ocrLoading ? "Читаю фото..." : "Распознать фото"}
-                  </button>
-
-                  {awaitConfirm && (
-                    <>
-                      <button
-                        onClick={confirmOCR}
-                        style={{
-                          padding: "10px 12px",
-                          borderRadius: 10,
-                          border: "none",
-                          background: "#22c55e",
-                          color: "white",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                        }}
-                      >
-                        Подтвердить
-                      </button>
-
-                      <button
-                        onClick={editOCR}
-                        style={{
-                          padding: "10px 12px",
-                          borderRadius: 10,
-                          border: "none",
-                          background: "#f59e0b",
-                          color: "black",
-                          fontWeight: 800,
-                          cursor: "pointer",
-                        }}
-                      >
-                        Исправить
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
               <ChatPanel onSend={handleAsk} sending={chatLoading} />
             </div>
           }
@@ -391,6 +300,7 @@ export default function LessonPage() {
               setAnswerText={setAnswerText}
               onCheck={handleCheck}
               checkLoading={checkLoading}
+              onUploadImage={handleUploadImage}
             />
           }
         />
