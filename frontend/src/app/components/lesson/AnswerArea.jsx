@@ -1,58 +1,164 @@
-export default function AnswerArea({ answerText, setAnswerText, onCheck, checkLoading }) {
+"use client";
+
+import { useRef, useState } from "react";
+
+export default function AnswerArea({
+  answerText,
+  setAnswerText,
+  onCheck,
+  checkLoading,
+  onUploadImage, // <- добавим
+}) {
+  const fileRef = useRef(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [fileName, setFileName] = useState("");
+
+  function pickFile() {
+    fileRef.current?.click();
+  }
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+
+    // отдаём файл наверх (в page.jsx), там будем вызывать API распознавания
+    if (onUploadImage) {
+      await onUploadImage(file);
+    }
+  }
+
   return (
     <div style={styles.wrap}>
+      <div style={styles.row}>
+        <div style={styles.title}>Твоё решение</div>
+
+        <div style={styles.actions}>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{ display: "none" }}
+            onChange={handleFile}
+          />
+          <button type="button" style={styles.btnGhost} onClick={pickFile}>
+            📷 Фото
+          </button>
+
+          <button
+            type="button"
+            style={styles.btnPrimary}
+            onClick={onCheck}
+            disabled={checkLoading}
+          >
+            {checkLoading ? "Проверяю..." : "Проверить"}
+          </button>
+        </div>
+      </div>
+
+      {previewUrl && (
+        <div style={styles.previewBox}>
+          <div style={styles.previewHeader}>
+            <div style={styles.previewTitle}>Фото: {fileName}</div>
+            <button
+              type="button"
+              style={styles.btnSmall}
+              onClick={() => {
+                setPreviewUrl(null);
+                setFileName("");
+              }}
+            >
+              Убрать
+            </button>
+          </div>
+          <img src={previewUrl} alt="preview" style={styles.previewImg} />
+        </div>
+      )}
+
       <textarea
         style={styles.textarea}
+        placeholder="Напиши решение текстом или загрузи фото…"
         value={answerText}
         onChange={(e) => setAnswerText(e.target.value)}
-        placeholder="Напиши решение (или просто ответ), затем нажми «Проверить»..."
       />
-
-      <div style={styles.row}>
-        <button style={styles.photoBtn} disabled>
-          📷 Фото (скоро)
-        </button>
-
-        <button style={styles.checkBtn} onClick={onCheck} disabled={checkLoading}>
-          {checkLoading ? "Проверяю..." : "Проверить решение"}
-        </button>
-      </div>
     </div>
   );
 }
 
 const styles = {
-  wrap: { maxWidth: 1100, margin: "0 auto", display: "grid", gap: 10 },
+  wrap: { display: "grid", gap: 10 },
+  row: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  title: { fontSize: 14, opacity: 0.85, fontWeight: 700 },
+  actions: { display: "flex", gap: 8, alignItems: "center" },
+
   textarea: {
     width: "100%",
-    minHeight: 90,
+    minHeight: 120,
     borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "rgba(255,255,255,0.04)",
-    color: "white",
     padding: 12,
+    background: "rgba(0,0,0,0.35)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    color: "white",
     outline: "none",
-    fontSize: 14,
-    lineHeight: 1.4,
     resize: "vertical",
   },
-  row: { display: "flex", gap: 10, justifyContent: "space-between" },
-  photoBtn: {
+
+  previewBox: {
     borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "rgba(255,255,255,0.04)",
-    color: "rgba(255,255,255,0.6)",
-    padding: "10px 14px",
-    cursor: "not-allowed",
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(0,0,0,0.25)",
+    padding: 10,
   },
-  checkBtn: {
+  previewHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 8,
+  },
+  previewTitle: { fontSize: 12, opacity: 0.8 },
+  previewImg: {
+    width: "100%",
+    height: "auto",
+    borderRadius: 10,
+    display: "block",
+  },
+
+  btnPrimary: {
+    padding: "10px 12px",
     borderRadius: 12,
     border: "none",
-    background: "#4f8cff",
-    color: "#071021",
-    fontWeight: 900,
-    padding: "10px 14px",
+    background: "#3b82f6",
+    color: "white",
+    fontWeight: 800,
     cursor: "pointer",
-    minWidth: 220,
+  },
+  btnGhost: {
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.18)",
+    background: "rgba(255,255,255,0.06)",
+    color: "white",
+    cursor: "pointer",
+    fontWeight: 700,
+  },
+  btnSmall: {
+    padding: "6px 10px",
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.18)",
+    background: "rgba(255,255,255,0.06)",
+    color: "white",
+    cursor: "pointer",
+    fontSize: 12,
   },
 };
