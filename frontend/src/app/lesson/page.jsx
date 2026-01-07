@@ -97,7 +97,6 @@ export default function LessonPage() {
   async function handleUploadImage(file) {
     if (!file) return;
 
-    // (опционально) покажем, что началось распознавание
     setMessages((prev) => [
       ...prev,
       { role: "assistant", text: "Ок, читаю фото… ⏳" },
@@ -113,7 +112,10 @@ export default function LessonPage() {
       if (!res.ok || data?.error) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", text: `⚠️ OCR ошибка: ${data?.error || "Unknown error"}` },
+          {
+            role: "assistant",
+            text: `⚠️ OCR ошибка: ${data?.error || "Unknown error"}`,
+          },
         ]);
         return;
       }
@@ -122,12 +124,14 @@ export default function LessonPage() {
       if (!recognized) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", text: "Я не смог прочитать текст на фото. Попробуй сделать фото чётче 🙏" },
+          {
+            role: "assistant",
+            text: "Я не смог прочитать текст на фото. Попробуй сделать фото чётче 🙏",
+          },
         ]);
         return;
       }
 
-      // UX-петля подтверждения (самый простой и надежный способ)
       const ok = window.confirm(
         "Я понял твоё решение так:\n\n" + recognized + "\n\nВерно?"
       );
@@ -139,7 +143,6 @@ export default function LessonPage() {
           { role: "assistant", text: "Принял 👍 Теперь нажми «Проверить»." },
         ]);
       } else {
-        // если не верно — всё равно вставим, чтобы можно было поправить руками
         setAnswerText(recognized);
         setMessages((prev) => [
           ...prev,
@@ -163,14 +166,16 @@ export default function LessonPage() {
     if (!a) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: "Напиши решение или загрузи фото, затем нажми «Проверить» 🙂" },
+        {
+          role: "assistant",
+          text: "Напиши решение или загрузи фото, затем нажми «Проверить» 🙂",
+        },
       ]);
       return;
     }
 
     setCheckLoading(true);
 
-    // сообщение ученика
     setMessages((prev) => [
       ...prev,
       { role: "user", text: `Решение по «${activeTask.title}»:\n${a}` },
@@ -195,7 +200,10 @@ export default function LessonPage() {
       if (!res.ok) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", text: `⚠️ Ошибка проверки: ${data?.error || "Unknown error"}` },
+          {
+            role: "assistant",
+            text: `⚠️ Ошибка проверки: ${data?.error || "Unknown error"}`,
+          },
         ]);
       } else if (data?.error) {
         setMessages((prev) => [
@@ -263,7 +271,10 @@ export default function LessonPage() {
     } catch (e) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: "⚠️ Ошибка сети. Проверь интернет и попробуй ещё раз." },
+        {
+          role: "assistant",
+          text: "⚠️ Ошибка сети. Проверь интернет и попробуй ещё раз.",
+        },
       ]);
     } finally {
       setChatLoading(false);
@@ -271,39 +282,40 @@ export default function LessonPage() {
   }
 
   return (
-  <>
-    {loading && <EinsteinLoader text="Готовлю урок и примеры..." />}
+    <>
+      {loading && <EinsteinLoader text="Готовлю урок и примеры..." />}
 
-    {!loading && lesson && (
-      <LessonLayout
-        left={
-          <TasksPanel
-            tasks={lesson.tasks}
-            activeTaskId={activeTaskId}
-            onSelect={setActiveTaskId}
-          />
-        }
-        right={
-          <div>
-            <TheoryPanel
-              title={lesson.title}
-              theory={lesson.theory}
-              activeTask={activeTask}
-              messages={messages}
+      {!loading && lesson && (
+        <LessonLayout
+          left={
+            <TasksPanel
+              tasks={lesson.tasks}
+              activeTaskId={activeTaskId}
+              onSelect={setActiveTaskId}
             />
-            <ChatPanel onSend={handleAsk} sending={chatLoading} />
-          </div>
-        }
-        bottom={
-          <AnswerArea
-            answerText={answerText}
-            setAnswerText={setAnswerText}
-            onCheck={handleCheck}
-            checkLoading={checkLoading}
-            onUploadImage={handleUploadImage}
-          />
-        }
-      />
-    )}
-  </>
-);
+          }
+          right={
+            <div>
+              <TheoryPanel
+                title={lesson.title}
+                theory={lesson.theory}
+                activeTask={activeTask}
+                messages={messages}
+              />
+              <ChatPanel onSend={handleAsk} sending={chatLoading} />
+            </div>
+          }
+          bottom={
+            <AnswerArea
+              answerText={answerText}
+              setAnswerText={setAnswerText}
+              onCheck={handleCheck}
+              checkLoading={checkLoading}
+              onUploadImage={handleUploadImage}
+            />
+          }
+        />
+      )}
+    </>
+  );
+}
