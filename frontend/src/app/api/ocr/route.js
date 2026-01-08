@@ -8,7 +8,7 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🔹 Нормализация OCR-текста (очистка мусора)
+// Нормализация OCR-текста (чистим мусор и приводим к удобному виду)
 function normalizeOcrText(raw) {
   let s = String(raw || "");
 
@@ -23,7 +23,7 @@ function normalizeOcrText(raw) {
   s = s.replace(/[“”«»]/g, '"');
 
   // точки умножения → *
-  s = s.replace(/[·∙⋅]/g, "*");
+  s = s.replace(/[·’⋅]/g, "*");
 
   // нормализация пробелов
   s = s.replace(/[ \t]+/g, " ");
@@ -31,11 +31,11 @@ function normalizeOcrText(raw) {
   s = s.replace(/[ \t]+\n/g, "\n");
 
   // степени: ² ³ → ^2 ^3
-  s = s.replace(/([a-zA-Z0-9\)\]])\s*²/g, "$1^2");
-  s = s.replace(/([a-zA-Z0-9\)\]])\s*³/g, "$1^3");
+  s = s.replace(/([a-zA-Z0-9)\]])\s*²/g, "$1^2");
+  s = s.replace(/([a-zA-Z0-9)\]])\s*³/g, "$1^3");
 
-  // x2 → x^2, (x+1)2 → (x+1)^2
-  s = s.replace(/([a-zA-Z\)\]])\s*([2-9])\b/g, "$1^$2");
+  // x2 → x^2, (x+1)2 → (x+1)^2 (если OCR потерял ^)
+  s = s.replace(/([a-zA-Z)\]])\s*([2-9])\b/g, "$1^$2");
 
   // пробелы вокруг "="
   s = s.replace(/\s*=\s*/g, " = ");
@@ -43,17 +43,14 @@ function normalizeOcrText(raw) {
   return s.trim();
 }
 
-// 🔹 POST — распознавание фото
+// POST — распознавание фото
 export async function POST(req) {
   try {
     const formData = await req.formData();
     const file = formData.get("image");
 
     if (!file) {
-      return NextResponse.json(
-        { error: "Нет изображения" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Нет изображения" }, { status: 400 });
     }
 
     const bytes = await file.arrayBuffer();
@@ -83,8 +80,7 @@ export async function POST(req) {
     });
 
     const rawText =
-      response.output_text?.trim() ||
-      "Не удалось распознать текст";
+      response.output_text?.trim() || "Не удалось распознать текст";
 
     const cleanedText = normalizeOcrText(rawText);
 
