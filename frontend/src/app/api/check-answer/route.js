@@ -11,10 +11,10 @@ function isRegionBlock(err) {
   const status = err?.status || err?.response?.status;
   const msg = String(err?.message || "");
   return (
-    status === 403 ||
-    msg.includes("Country, region, or territory not supported") ||
-    msg.includes("region") ||
-    msg.includes("territory")
+    status === 403 &&
+    (msg.includes("Country, region, or territory not supported") ||
+      msg.includes("region") ||
+      msg.includes("territory"))
   );
 }
 
@@ -26,7 +26,8 @@ async function solveWithWolfram(baseUrl, query) {
     body: JSON.stringify({ query }),
   });
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+
   if (!res.ok || data?.error) {
     return { ok: false, error: data?.error || "Wolfram error", raw: data };
   }
@@ -45,24 +46,19 @@ export async function POST(req) {
     }
     lastTime = now;
 
-    const { topic, theory, task, answerText } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const { topic, theory, task, answerText } = body;
 
-    if (!answerText || !answerText.trim()) {
-      return NextResponse.json(
-        { error: "answerText is required" },
-        { status: 400 }
-      );
+    if (!answerText || !String(answerText).trim()) {
+      return NextResponse.json({ error: "answerText is required" }, { status: 400 });
     }
 
     // baseUrl нужен, чтобы вызвать /api/wolfram на том же домене (Vercel/локал)
-    const baseUrl =
-      process.env.VERCEL_URL
-        ? https://${process.env.VERCEL_URL}
-        : "http://localhost:3000";
+    const baseUrl = process.env.VERCEL_URL
+      ? https://${process.env.VERCEL_URL}
+      : "http://localhost:3000";
 
-    // Формируем запрос к Wolfram на основе задачи
-    // (пока простая версия: если есть текст задачи — передаём его в solve)
-    // Позже улучшим: GPT будет генерить короткий wolfram-query из task.prompt.
+    // Формируем запрос к Wolfram
     const wolframQuery = task?.prompt
       ? solve ${task.prompt}
       : solve ${answerText};
@@ -92,7 +88,11 @@ export async function POST(req) {
 ${theory || "(нет)"}
 
 ЗАДАЧА:
-${task ? ${task.title}\n${task.prompt} : "(нет)"}
+${
+  task
+    ? ${task.title || "(без названия)"}\n${task.prompt || "(без текста)"}
+    : "(нет)"
+}
 
 РЕШЕНИЕ УЧЕНИКА:
 ${answerText}
@@ -116,7 +116,11 @@ raw (сокращенно): ${wolfram.ok ? "есть" : JSON.stringify(wolfram.r
       resp.output_text?.trim() ||
       "Не смог проверить. Попробуй написать решение чуть подробнее.";
 
-    return NextResponse.json({ ok: true, feedback, wolfram: { ok: wolfram.ok, roots: wolfram.roots } });
+    return NextResponse.json({
+      ok: true,
+      feedback,
+      wolfram: { ok: wolfram.ok, roots: wolfram.roots },
+    });
   } catch (err) {
     if (isRegionBlock(err)) {
       return NextResponse.json(
