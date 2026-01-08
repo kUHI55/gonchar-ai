@@ -11,10 +11,11 @@ function isRegionBlock(err) {
   const status = err?.status || err?.response?.status;
   const msg = String(err?.message || "");
   return (
-    status === 403 &&
-    (msg.includes("Country, region, or territory not supported") ||
-      msg.includes("region") ||
-      msg.includes("territory"))
+    status === 403 ||
+    msg.includes("Country, region, or territory not supported") ||
+    msg.includes("Country/region/territory not supported") ||
+    msg.toLowerCase().includes("region") ||
+    msg.toLowerCase().includes("territory")
   );
 }
 
@@ -27,7 +28,6 @@ async function solveWithWolfram(baseUrl, query) {
   });
 
   const data = await res.json().catch(() => ({}));
-
   if (!res.ok || data?.error) {
     return { ok: false, error: data?.error || "Wolfram error", raw: data };
   }
@@ -53,12 +53,10 @@ export async function POST(req) {
       return NextResponse.json({ error: "answerText is required" }, { status: 400 });
     }
 
-    // baseUrl нужен, чтобы вызвать /api/wolfram на том же домене (Vercel/локал)
     const baseUrl = process.env.VERCEL_URL
       ? https://${process.env.VERCEL_URL}
       : "http://localhost:3000";
 
-    // Формируем запрос к Wolfram
     const wolframQuery = task?.prompt
       ? solve ${task.prompt}
       : solve ${answerText};
@@ -88,11 +86,7 @@ export async function POST(req) {
 ${theory || "(нет)"}
 
 ЗАДАЧА:
-${
-  task
-    ? ${task.title || "(без названия)"}\n${task.prompt || "(без текста)"}
-    : "(нет)"
-}
+${task ? ${task.title}\n${task.prompt} : "(нет)"}
 
 РЕШЕНИЕ УЧЕНИКА:
 ${answerText}
@@ -100,7 +94,7 @@ ${answerText}
 ЭТАЛОН от Wolfram:
 ok: ${wolfram.ok}
 roots: ${JSON.stringify(wolfram.roots)}
-raw (сокращенно): ${wolfram.ok ? "есть" : JSON.stringify(wolfram.raw)}
+raw: ${wolfram.ok ? "есть" : JSON.stringify(wolfram.raw)}
 `.trim();
 
     const resp = await client.responses.create({
@@ -127,7 +121,7 @@ raw (сокращенно): ${wolfram.ok ? "есть" : JSON.stringify(wolfram.r
         {
           code: "REGION_BLOCK",
           error:
-            "OpenAI API недоступен из-за региона/VPN. На Vercel обычно работает. Если нет — скажи, посмотрим логи.",
+            "OpenAI API недоступен из-за региона/VPN. На Vercel обычно работает. Если нет — посмотрим логи.",
         },
         { status: 200 }
       );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 export default function AnswerArea({
   answerText,
@@ -21,11 +21,6 @@ export default function AnswerArea({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // если было предыдущее превью — освобождаем память
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-
     setFileName(file.name);
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
@@ -35,35 +30,16 @@ export default function AnswerArea({
     }
   }
 
-  function clearPhoto() {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-    setPreviewUrl(null);
-    setFileName("");
-
-    // ВАЖНО: сбрасываем value у input, иначе выбор того же файла может не триггерить onChange
-    if (fileRef.current) {
-      fileRef.current.value = "";
-    }
-  }
-
-  // cleanup при размонтировании компонента
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
-
   return (
     <div style={styles.wrap}>
       <div style={styles.row}>
         <div style={styles.title}>Твоё решение</div>
 
         <div style={styles.actions}>
+          {/* ВАЖНО: input должен быть в DOM, иначе файлы не выбрать */}
           <input
-            id="ocr-file-input" // ✅ для теста через консоль
             ref={fileRef}
+            id="ocr-file-input"
             type="file"
             accept="image/*"
             capture="environment"
@@ -90,7 +66,15 @@ export default function AnswerArea({
         <div style={styles.previewBox}>
           <div style={styles.previewHeader}>
             <div style={styles.previewTitle}>Фото: {fileName}</div>
-            <button type="button" style={styles.btnSmall} onClick={clearPhoto}>
+            <button
+              type="button"
+              style={styles.btnSmall}
+              onClick={() => {
+                setPreviewUrl(null);
+                setFileName("");
+                if (fileRef.current) fileRef.current.value = "";
+              }}
+            >
               Убрать
             </button>
           </div>
@@ -169,7 +153,8 @@ const styles = {
     background: "rgba(255,255,255,0.06)",
     color: "white",
     cursor: "pointer",
-    fontWeight: 700,},
+    fontWeight: 700,
+  },
   btnSmall: {
     padding: "6px 10px",
     borderRadius: 10,
