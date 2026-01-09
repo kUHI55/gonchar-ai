@@ -36,10 +36,9 @@ export default function AnswerArea({
         <div style={styles.title}>Твоё решение</div>
 
         <div style={styles.actions}>
-          {/* ВАЖНО: input должен быть в DOM, иначе файлы не выбрать */}
           <input
-            ref={fileRef}
             id="ocr-file-input"
+            ref={fileRef}
             type="file"
             accept="image/*"
             capture="environment"

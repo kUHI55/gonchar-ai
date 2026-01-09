@@ -4,22 +4,19 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// анти-спам: 1 запрос / 2 сек
 let lastTime = 0;
 
 function isRegionBlock(err) {
   const status = err?.status || err?.response?.status;
   const msg = String(err?.message || "");
   return (
-    status === 403 ||
-    msg.includes("Country, region, or territory not supported") ||
-    msg.includes("Country/region/territory not supported") ||
-    msg.toLowerCase().includes("region") ||
-    msg.toLowerCase().includes("territory")
+    status === 403 &&
+    (msg.includes("Country, region, or territory not supported") ||
+      msg.includes("region") ||
+      msg.includes("territory"))
   );
 }
 
-// helper: дергаем наш же /api/wolfram
 async function solveWithWolfram(baseUrl, query) {
   const res = await fetch(`${baseUrl}/api/wolfram`, {
     method: "POST",
@@ -46,20 +43,18 @@ export async function POST(req) {
     }
     lastTime = now;
 
-    const body = await req.json().catch(() => ({}));
-    const { topic, theory, task, answerText } = body;
+    const { topic, theory, task, answerText } = await req.json().catch(() => ({}));
 
-    if (!answerText || !String(answerText).trim()) {
+    const answer = String(answerText || "").trim();
+    if (!answer) {
       return NextResponse.json({ error: "answerText is required" }, { status: 400 });
     }
 
     const baseUrl = process.env.VERCEL_URL
-      ? https://${process.env.VERCEL_URL}
+      ? `https://${process.env.VERCEL_URL}`
       : "http://localhost:3000";
 
-    const wolframQuery = task?.prompt
-      ? solve ${task.prompt}
-      : solve ${answerText};
+    const wolframQuery = task?.prompt ? `solve ${task.prompt}` : `solve ${answer}`;
 
     const wolfram = await solveWithWolfram(baseUrl, wolframQuery);
 
@@ -79,22 +74,24 @@ export async function POST(req) {
 4) Пиши коротко, простыми словами, по пунктам.
 `.trim();
 
+    const taskBlock = task ? `${task.title}\n${task.prompt}` : "(нет)";
+
     const user = `
 ТЕМА: ${topic || "математика"}
 
-ТЕОРИЯ (может быть markdown):
+ТЕОРИЯ:
 ${theory || "(нет)"}
 
 ЗАДАЧА:
-${task ? ${task.title}\n${task.prompt} : "(нет)"}
+${taskBlock}
 
 РЕШЕНИЕ УЧЕНИКА:
-${answerText}
+${answer}
 
 ЭТАЛОН от Wolfram:
 ok: ${wolfram.ok}
 roots: ${JSON.stringify(wolfram.roots)}
-raw: ${wolfram.ok ? "есть" : JSON.stringify(wolfram.raw)}
+raw_present: ${wolfram.ok ? "yes" : JSON.stringify(wolfram.raw)}
 `.trim();
 
     const resp = await client.responses.create({
@@ -127,9 +124,6 @@ raw: ${wolfram.ok ? "есть" : JSON.stringify(wolfram.raw)}
       );
     }
 
-    return NextResponse.json(
-      { error: err?.message || "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });
   }
 }
