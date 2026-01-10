@@ -56,6 +56,11 @@ export async function POST(req) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
+    // ВАЖНО: Responses API ожидает image_url (data URL), а не image_base64
+    const base64 = buffer.toString("base64");
+    const mime = file.type || "image/jpeg";
+    const dataUrl = `data:${mime};base64,${base64}`;
+
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
       input: [
@@ -71,7 +76,7 @@ export async function POST(req) {
             },
             {
               type: "input_image",
-              image_base64: buffer.toString("base64"),
+              image_url: dataUrl,
             },
           ],
         },
