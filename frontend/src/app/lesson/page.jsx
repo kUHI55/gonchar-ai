@@ -18,11 +18,9 @@ async function generateLesson(topic) {
   });
 
   const data = await res.json().catch(() => ({}));
-
   if (!res.ok || data?.error) {
     throw new Error(data?.error || "Ошибка генерации урока");
   }
-
   return data;
 }
 
@@ -39,7 +37,7 @@ export default function LessonPage() {
   const [messages, setMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
 
-  // ✅ ВЕРДИКТ
+  // ✅ ЯВНЫЙ ВЕРДИКТ
   const [verdict, setVerdict] = useState(null);
   // "correct" | "incorrect" | "unclear" | null
 
@@ -63,15 +61,9 @@ export default function LessonPage() {
       } catch (e) {
         setLesson({
           title: `Тема: ${t}`,
-          theory:
-            "⚠️ Не удалось сгенерировать урок.\n\n" +
-            `Ошибка: ${e?.message || "unknown"}`,
+          theory: `⚠️ Не удалось сгенерировать урок.\n${e?.message || ""}`,
           tasks: [
-            {
-              id: "t1",
-              title: "Задача 1",
-              prompt: "Нет задач — генерация не сработала.",
-            },
+            { id: "t1", title: "Задача", prompt: "Задачи недоступны." },
           ],
         });
         setActiveTaskId("t1");
@@ -89,7 +81,7 @@ export default function LessonPage() {
     return () => (document.body.style.overflow = prev);
   }, [loading]);
 
-  // ✅ СБРОС при смене задачи
+  // сброс при смене задачи
   useEffect(() => {
     setAnswerText("");
     setVerdict(null);
@@ -114,7 +106,7 @@ export default function LessonPage() {
       if (!res.ok || data?.error) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", text: `⚠️ OCR ошибка` },
+          { role: "assistant", text: "⚠️ Не удалось распознать фото" },
         ]);
         return;
       }
@@ -123,7 +115,7 @@ export default function LessonPage() {
       if (!recognized) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", text: "Не смог прочитать текст 😕" },
+          { role: "assistant", text: "Текст на фото не читается 😕" },
         ]);
         return;
       }
@@ -160,7 +152,7 @@ export default function LessonPage() {
     if (!a) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: "Напиши решение 🙂" },
+        { role: "assistant", text: "Сначала напиши решение 🙂" },
       ]);
       return;
     }
@@ -187,18 +179,25 @@ export default function LessonPage() {
 
       const data = await res.json().catch(() => ({}));
 
-      if (res.ok && !data?.error) {
-        setVerdict(data.verdict || "unclear");
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", text: data.feedback || "" },
-        ]);
-      } else {
+      if (!res.ok || data?.error) {
         setMessages((prev) => [
           ...prev,
           { role: "assistant", text: "⚠️ Ошибка проверки" },
         ]);
+        return;
       }
+
+      setVerdict(data.verdict || "unclear");
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text:
+            (data.feedback || "") +
+            (data.next ? "\n\n👉 " + data.next : ""),
+        },
+      ]);
     } finally {
       setCheckLoading(false);
     }
@@ -256,7 +255,6 @@ export default function LessonPage() {
                 messages={messages}
               />
 
-              {/* ✅ ВЕРДИКТ */}
               {verdict && (
                 <div
                   style={{

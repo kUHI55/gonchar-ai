@@ -34,32 +34,30 @@ export async function POST(req) {
 
     const a = String(answerText || "").trim();
     if (!a) {
-      return NextResponse.json({ error: "answerText is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "answerText is required" },
+        { status: 400 }
+      );
     }
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
-    // ВАЖНО: заставляем модель вернуть JSON с verdict
-    const system = `
-Ты — школьный учитель математики (10–16 лет). Ты проверяешь решение ученика.
-
-Верни СТРОГО JSON без лишнего текста вокруг, формат:
-
-{
-  "verdict": "correct" | "incorrect" | "unclear",
-  "feedback": "короткое объяснение простыми словами, по пунктам",
-  "next": "1-2 коротких наводящих вопроса или следующий шаг (может быть пусто)"
-}
+    // =========================
+    // 1️⃣ GPT-УЧИТЕЛЬ (объяснение)
+    // =========================
+    const systemTeacher = `
+Ты — школьный учитель математики (10–16 лет).
+Твоя задача — объяснить ученику, верно ли его решение.
 
 Правила:
-- verdict="correct": прямо скажи что верно.
-- verdict="incorrect": прямо скажи что неверно (без финального ответа), укажи где ошибка + 1-2 вопроса.
-- verdict="unclear": скажи что не хватает данных и задай 1 уточняющий вопрос.
-- Не используй LaTeX ($$, \\frac и т.п.). Формулы — обычным текстом.
+- НЕ пиши финальный ответ задачи.
+- Если есть ошибка — укажи шаг и задай 1–2 наводящих вопроса.
+- Если всё верно — коротко похвали.
+- Пиши простым языком.
 `.trim();
 
-    const user = `
+    const userTeacher = `
 ТЕМА: ${topic || "математика"}
 
 ТЕОРИЯ:
@@ -72,40 +70,66 @@ ${task ? `${task.title}\n${task.prompt}` : "(нет)"}
 ${a}
 `.trim();
 
-    const resp = await client.responses.create({
+    const teacherResp = await client.responses.create({
       model,
       input: [
-        { role: "system", content: system },
-        { role: "user", content: user },
+        { role: "system", content: systemTeacher },
+        { role: "user", content: userTeacher },
       ],
-      max_output_tokens: 700,
+      max_output_tokens: 500,
     });
 
-    const raw = (resp.output_text || "").trim();
+    const feedback =
+      teacherResp.output_text?.trim() ||
+      "Я не смог корректно разобрать решение.";
 
-    let data;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      // fallback если модель вдруг не вернула JSON
-      data = {
-        verdict: "unclear",
-        feedback:
-          "Я не смог корректно сформировать вердикт. Напиши решение чуть подробнее (с шагами).",
-        next: "Какие шаги ты делал(а) и почему?",
-      };
-    }
+    // =========================
+    // 2️⃣ GPT-СУДЬЯ (жёсткий verdict)
+    // =========================
+    const systemJudge = `
+Ты — строгий математический проверяющий.
+Ответь СТРОГО одним словом: correct или incorrect.
 
-    // защита: если verdict неправильный — приводим к safe
-    const verdict = ["correct", "incorrect", "unclear"].includes(data?.verdict)
-      ? data.verdict
-      : "unclear";
+Правила:
+- Если решение математически верно — correct
+- Даже если кратко, но логика верна — correct
+- Если есть ошибка — incorrect
+- Никаких объяснений
+`.trim();
 
+    const judgeResp = await client.responses.create({
+      model,
+      input: [
+        { role: "system", content: systemJudge },
+        {
+          role: "user",
+          content: `
+ЗАДАЧА:
+${task ? `${task.title}\n${task.prompt}` : "(нет)"}
+
+РЕШЕНИЕ УЧЕНИКА:
+${a}
+`.trim(),
+        },
+      ],
+      max_output_tokens: 10,
+    });
+
+    const hardVerdict =
+      judgeResp.output_text?.trim() === "correct"
+        ? "correct"
+        : "incorrect";
+
+    // =========================
+    // ✅ ФИНАЛЬНЫЙ ОТВЕТ
+    // =========================
     return NextResponse.json({
       ok: true,
-      verdict,
-      feedback: String(data?.feedback || "").trim(),
-      next: String(data?.next || "").trim(),
+      verdict: hardVerdict,
+      feedback,
+      next: hardVerdict === "incorrect"
+        ? "Попробуй ещё раз, исправив указанный шаг."
+        : "",
     });
   } catch (err) {
     if (isRegionBlock(err)) {
@@ -113,12 +137,15 @@ ${a}
         {
           code: "REGION_BLOCK",
           error:
-            "OpenAI API недоступен из-за региона/VPN. На Vercel обычно работает. Если нет — посмотрим логи.",
+            "OpenAI API недоступен из-за региона/VPN. На Vercel обычно работает.",
         },
         { status: 200 }
       );
     }
 
-    return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Server error" },
+      { status: 500 }
+    );
   }
 }
