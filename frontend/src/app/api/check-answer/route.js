@@ -4,32 +4,18 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// анти-спам: 1 запрос / 2 сек
 let lastTime = 0;
 
 function isRegionBlock(err) {
   const status = err?.status || err?.response?.status;
   const msg = String(err?.message || "");
   return (
-    status === 403 &&
-    (msg.includes("Country, region, or territory not supported") ||
-      msg.includes("region") ||
-      msg.includes("territory"))
+    status === 403 ||
+    msg.includes("Country, region, or territory not supported") ||
+    msg.includes("region") ||
+    msg.includes("territory")
   );
-}
-
-async function solveWithWolfram(baseUrl, query) {
-  const res = await fetch(`${baseUrl}/api/wolfram`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data?.error) {
-    return { ok: false, error: data?.error || "Wolfram error", raw: data };
-  }
-
-  return { ok: true, roots: data?.roots ?? null, raw: data };
 }
 
 export async function POST(req) {
@@ -43,38 +29,35 @@ export async function POST(req) {
     }
     lastTime = now;
 
-    const { topic, theory, task, answerText } = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => ({}));
+    const { topic, theory, task, answerText } = body;
 
-    const answer = String(answerText || "").trim();
-    if (!answer) {
+    const a = String(answerText || "").trim();
+    if (!a) {
       return NextResponse.json({ error: "answerText is required" }, { status: 400 });
     }
-
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000";
-
-    const wolframQuery = task?.prompt ? `solve ${task.prompt}` : `solve ${answer}`;
-
-    const wolfram = await solveWithWolfram(baseUrl, wolframQuery);
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
+    // ВАЖНО: заставляем модель вернуть JSON с verdict
     const system = `
-Ты — лучший школьный учитель математики (10–16 лет).
-Твоя цель — проверить решение ученика и научить.
+Ты — школьный учитель математики (10–16 лет). Ты проверяешь решение ученика.
 
-У тебя есть эталон от Wolfram (может быть roots или raw).
+Верни СТРОГО JSON без лишнего текста вокруг, формат:
+
+{
+  "verdict": "correct" | "incorrect" | "unclear",
+  "feedback": "короткое объяснение простыми словами, по пунктам",
+  "next": "1-2 коротких наводящих вопроса или следующий шаг (может быть пусто)"
+}
+
 Правила:
-1) Если решение неверное — НЕ говори сразу финальный ответ.
-   Скажи, на каком шаге ошибка, и дай 1–2 наводящих вопроса.
-2) Если верно — похвали коротко и предложи следующий шаг усложнения.
-3) Если ученик написал мало/непонятно — задай 1 уточняющий вопрос.
-4) Пиши коротко, простыми словами, по пунктам.
+- verdict="correct": прямо скажи что верно.
+- verdict="incorrect": прямо скажи что неверно (без финального ответа), укажи где ошибка + 1-2 вопроса.
+- verdict="unclear": скажи что не хватает данных и задай 1 уточняющий вопрос.
+- Не используй LaTeX ($$, \\frac и т.п.). Формулы — обычным текстом.
 `.trim();
-
-    const taskBlock = task ? `${task.title}\n${task.prompt}` : "(нет)";
 
     const user = `
 ТЕМА: ${topic || "математика"}
@@ -83,15 +66,10 @@ export async function POST(req) {
 ${theory || "(нет)"}
 
 ЗАДАЧА:
-${taskBlock}
+${task ? `${task.title}\n${task.prompt}` : "(нет)"}
 
 РЕШЕНИЕ УЧЕНИКА:
-${answer}
-
-ЭТАЛОН от Wolfram:
-ok: ${wolfram.ok}
-roots: ${JSON.stringify(wolfram.roots)}
-raw_present: ${wolfram.ok ? "yes" : JSON.stringify(wolfram.raw)}
+${a}
 `.trim();
 
     const resp = await client.responses.create({
@@ -103,14 +81,31 @@ raw_present: ${wolfram.ok ? "yes" : JSON.stringify(wolfram.raw)}
       max_output_tokens: 700,
     });
 
-    const feedback =
-      resp.output_text?.trim() ||
-      "Не смог проверить. Попробуй написать решение чуть подробнее.";
+    const raw = (resp.output_text || "").trim();
+
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      // fallback если модель вдруг не вернула JSON
+      data = {
+        verdict: "unclear",
+        feedback:
+          "Я не смог корректно сформировать вердикт. Напиши решение чуть подробнее (с шагами).",
+        next: "Какие шаги ты делал(а) и почему?",
+      };
+    }
+
+    // защита: если verdict неправильный — приводим к safe
+    const verdict = ["correct", "incorrect", "unclear"].includes(data?.verdict)
+      ? data.verdict
+      : "unclear";
 
     return NextResponse.json({
       ok: true,
-      feedback,
-      wolfram: { ok: wolfram.ok, roots: wolfram.roots },
+      verdict,
+      feedback: String(data?.feedback || "").trim(),
+      next: String(data?.next || "").trim(),
     });
   } catch (err) {
     if (isRegionBlock(err)) {
