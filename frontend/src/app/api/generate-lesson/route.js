@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-// ✅ Анти-спам: 1 запрос / 3 сек
+
 let lastRequestTime = 0;
 
 function isRegionBlock(err) {
@@ -18,7 +18,7 @@ function isRegionBlock(err) {
   );
 }
 
-// ✅ если модель вдруг вернула не “чистый JSON”, вырежем объект {...}
+
 function extractJsonObject(text) {
   const s = String(text || "").trim();
   const first = s.indexOf("{");
@@ -46,7 +46,7 @@ export async function POST(req) {
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    // ✅ фиксируем модель (чтобы не улететь в дорогую)
+    
     const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
     const system = `
@@ -91,12 +91,12 @@ export async function POST(req) {
 
     const raw = response.output_text?.trim() || "";
 
-    // 1) пробуем парсить как есть
+    
     let data = null;
     try {
       data = JSON.parse(raw);
     } catch {
-      // 2) если не вышло — вырезаем JSON-объект и парсим его
+      
       const cut = extractJsonObject(raw);
       if (!cut) {
         return NextResponse.json(
@@ -114,7 +114,7 @@ export async function POST(req) {
       }
     }
 
-    // минимальная валидация
+    
     if (!data?.title || !data?.theory || !Array.isArray(data?.tasks)) {
       return NextResponse.json(
         { error: "JSON schema mismatch", raw, parsed: data },

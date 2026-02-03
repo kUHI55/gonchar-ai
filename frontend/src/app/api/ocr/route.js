@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
+// ✅ антиспам
+import {
+  getVisitorId,
+  checkPhotoSpam,
+  registerPhotoViolation,
+} from "@/lib/antispam";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -8,55 +15,59 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Нормализация OCR-текста (чистим мусор и приводим к удобному виду)
+// --------------------
+// OCR text normalization
+// --------------------
 function normalizeOcrText(raw) {
   let s = String(raw || "");
 
-  // переносы строк
   s = s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-  // разные тире → обычный минус
   s = s.replace(/[–—]/g, "-");
-
-  // мусор OCR
   s = s.replace(/[|]/g, "");
   s = s.replace(/[“”«»]/g, '"');
-
-  // точки умножения → *
   s = s.replace(/[·’⋅]/g, "*");
-
-  // нормализация пробелов
   s = s.replace(/[ \t]+/g, " ");
   s = s.replace(/\n[ \t]+/g, "\n");
   s = s.replace(/[ \t]+\n/g, "\n");
-
-  // степени: ² ³ → ^2 ^3
   s = s.replace(/([a-zA-Z0-9)\]])\s*²/g, "$1^2");
   s = s.replace(/([a-zA-Z0-9)\]])\s*³/g, "$1^3");
-
-  // x2 → x^2, (x+1)2 → (x+1)^2 (если OCR потерял ^)
   s = s.replace(/([a-zA-Z)\]])\s*([2-9])\b/g, "$1^$2");
-
-  // пробелы вокруг "="
   s = s.replace(/\s*=\s*/g, " = ");
 
   return s.trim();
 }
 
-// POST — распознавание фото
+// --------------------
+// POST — OCR + ANTISPAM
+// --------------------
 export async function POST(req) {
   try {
+    // 🔐 visitor
+    const visitorId = getVisitorId(req);
+
+    // 🔒 already banned?
+    const spamCheck = await checkPhotoSpam(visitorId);
+    if (spamCheck.blocked) {
+      return NextResponse.json(
+        { error: spamCheck.message },
+        { status: 403 }
+      );
+    }
+
     const formData = await req.formData();
     const file = formData.get("image");
 
     if (!file) {
-      return NextResponse.json({ error: "Нет изображения" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Нет изображения" },
+        { status: 400 }
+      );
     }
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // ВАЖНО: Responses API ожидает image_url (data URL), а не image_base64
+    // GPT expects image_url (data URL)
     const base64 = buffer.toString("base64");
     const mime = file.type || "image/jpeg";
     const dataUrl = `data:${mime};base64,${base64}`;
@@ -85,14 +96,45 @@ export async function POST(req) {
     });
 
     const rawText =
-      response.output_text?.trim() || "Не удалось распознать текст";
+      response.output_text?.trim() || "";
 
+    // --------------------
+    // 🧨 NOT MATH → STRIKE
+    // --------------------
+    const looksLikeMath =
+      /[=+\-*/^]|x|y|sin|cos|tan|sqrt|\d/.test(
+        rawText.toLowerCase()
+      );
+
+    if (!looksLikeMath) {
+      const penalty = await registerPhotoViolation(visitorId);
+
+      if (penalty.strikes === 1) {
+        return NextResponse.json(
+          {
+            error:
+              "Это фото не похоже на математическое решение. " +
+              "Если отправишь не по теме ещё раз — доступ будет временно заблокирован.",
+          },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json(
+        { error: "Доступ временно заблокирован." },
+        { status: 403 }
+      );
+    }
+
+    // --------------------
+    // ✅ OK
+    // --------------------
     const cleanedText = normalizeOcrText(rawText);
 
     return NextResponse.json({
       ok: true,
       text: cleanedText,
-      raw: rawText, // оставляем для дебага
+      raw: rawText, // для дебага
     });
   } catch (err) {
     return NextResponse.json(

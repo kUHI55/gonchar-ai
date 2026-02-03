@@ -1,11 +1,14 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 
+import {
+  getVisitorId,
+  checkTextSpam,
+  registerTextViolation,
+} from "@/lib/antispam";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-// анти-спам: 1 запрос / 2 сек
-let lastTime = 0;
 
 function isRegionBlock(err) {
   const status = err?.status || err?.response?.status;
@@ -18,16 +21,23 @@ function isRegionBlock(err) {
   );
 }
 
+
+function looksLikeMath(text) {
+  return /[0-9x=+\-*/^()]/i.test(text);
+}
+
 export async function POST(req) {
   try {
-    const now = Date.now();
-    if (now - lastTime < 2000) {
+    const visitorId = getVisitorId(req);
+
+    
+    const spam = await checkTextSpam(visitorId);
+    if (spam.blocked) {
       return NextResponse.json(
-        { error: "Подожди 2 секунды перед следующей проверкой 🙂" },
-        { status: 429 }
+        { error: spam.message },
+        { status: 403 }
       );
     }
-    lastTime = now;
 
     const body = await req.json().catch(() => ({}));
     const { topic, theory, task, answerText } = body;
@@ -35,33 +45,50 @@ export async function POST(req) {
     const a = String(answerText || "").trim();
     if (!a) {
       return NextResponse.json(
-        { error: "answerText is required" },
+        { error: "Напиши решение" },
         { status: 400 }
       );
     }
 
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    
+    if (!looksLikeMath(a)) {
+      const data = await registerTextViolation(visitorId);
+
+      if (data.bannedUntil) {
+        return NextResponse.json(
+          { error: "Доступ заблокирован" },
+          { status: 403 }
+        );
+      }
+
+      return NextResponse.json(
+        { error: "Ответ не относится к математике" },
+        { status: 400 }
+      );
+    }
+
+    const client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
     const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
-    // =========================
-    // 1️⃣ GPT-УЧИТЕЛЬ (объяснение)
-    // =========================
+    
+    
+    
     const systemTeacher = `
-Ты — школьный учитель математики (10–16 лет).
-Твоя задача — объяснить ученику, верно ли его решение.
+Ты — учитель математики.
+Объясни, верно ли решение ученика.
 
 Правила:
-- НЕ пиши финальный ответ задачи.
-- Если есть ошибка — укажи шаг и задай 1–2 наводящих вопроса.
-- Если всё верно — коротко похвали.
-- Пиши простым языком.
+- НЕ пиши финальный ответ задачи
+- Если ошибка — укажи шаг и задай 1–2 вопроса
+- Если верно — прямо скажи, что решение верное
+- Пиши простым языком
 `.trim();
 
     const userTeacher = `
 ТЕМА: ${topic || "математика"}
-
-ТЕОРИЯ:
-${theory || "(нет)"}
 
 ЗАДАЧА:
 ${task ? `${task.title}\n${task.prompt}` : "(нет)"}
@@ -83,18 +110,12 @@ ${a}
       teacherResp.output_text?.trim() ||
       "Я не смог корректно разобрать решение.";
 
-    // =========================
-    // 2️⃣ GPT-СУДЬЯ (жёсткий verdict)
-    // =========================
+    
+    
+    
     const systemJudge = `
 Ты — строгий математический проверяющий.
 Ответь СТРОГО одним словом: correct или incorrect.
-
-Правила:
-- Если решение математически верно — correct
-- Даже если кратко, но логика верна — correct
-- Если есть ошибка — incorrect
-- Никаких объяснений
 `.trim();
 
     const judgeResp = await client.responses.create({
@@ -107,7 +128,7 @@ ${a}
 ЗАДАЧА:
 ${task ? `${task.title}\n${task.prompt}` : "(нет)"}
 
-РЕШЕНИЕ УЧЕНИКА:
+РЕШЕНИЕ:
 ${a}
 `.trim(),
         },
@@ -115,27 +136,24 @@ ${a}
       max_output_tokens: 10,
     });
 
-    const hardVerdict =
+    const verdict =
       judgeResp.output_text?.trim() === "correct"
         ? "correct"
         : "incorrect";
 
-    // =========================
-    // ✅ ФИНАЛЬНЫЙ ОТВЕТ
-    // =========================
     return NextResponse.json({
       ok: true,
-      verdict: hardVerdict,
+      verdict,
       feedback,
-      next: hardVerdict === "incorrect"
-        ? "Попробуй ещё раз, исправив указанный шаг."
-        : "",
+      next:
+        verdict === "incorrect"
+          ? "Попробуй ещё раз, исправив ошибку."
+          : "",
     });
   } catch (err) {
     if (isRegionBlock(err)) {
       return NextResponse.json(
         {
-          code: "REGION_BLOCK",
           error:
             "OpenAI API недоступен из-за региона/VPN. На Vercel обычно работает.",
         },

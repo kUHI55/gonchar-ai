@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@upstash/redis": "^1.36.1",
     "katex": "^0.16.27",
     "rehype-katex": "^7.0.1",
     "remark-math": "^6.0.0"

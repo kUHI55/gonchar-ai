@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-// анти-спам: 1 запрос / 2 сек
+
 let lastAskTime = 0;
 
 function isRegionBlock(err) {
@@ -37,10 +37,10 @@ export async function POST(req) {
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    // фиксируем модель, чтобы не улететь в дорогую
+    
     const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
-    // Контекст (чтобы репетитор отвечал по теме и по выбранной задаче)
+    
     const context = `
 ТЕМА: ${topic || "математика"}
 
@@ -51,7 +51,7 @@ ${theory || "(нет)"}
 ${task ? `${task.title}\n${task.prompt}` : "(нет)"}
 `.trim();
 
-    // ✅ СУПЕР-СИСТЕМА: «как думает хороший учитель»
+    
     const system = `
 Ты — лучший школьный AI-репетитор по математике для ученика 10–16 лет.
 Твоя цель: не просто дать ответ, а довести ученика до понимания.

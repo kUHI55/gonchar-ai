@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +36,7 @@ function extractRootsFromWolfram(data) {
   // "x = 2\nx = 3"
   let s = joined;
 
-  // Убираем мусор
+  // Убираем мусор[ ]
   s = s.replace(/\r/g, "");
   s = s.replace(/±/g, "+/-");
 
